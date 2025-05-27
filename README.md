@@ -1,3 +1,8 @@
+#update 2025/05/28 - Add more scale options
+![image](https://github.com/user-attachments/assets/22d7358b-2d83-498c-9536-c8c352033c99)
+
+----------
+
 <div align="center">
 
 # ComfyUI ultimate openpose editor
@@ -9,9 +14,6 @@
 </p>
 
 
-![image](https://github.com/user-attachments/assets/22d7358b-2d83-498c-9536-c8c352033c99)
-
-----------
 
 This is an improved version of [ComfyUI-openpose-editor](https://github.com/huchenlei/ComfyUI-openpose-editor) 
 in ComfyUI, enable input and output with flexible choices. Much more convenient and easier to use. It integrates the render function which you also can intall it separately from my [ultimate-openpose-render](https://github.com/westNeighbor/ComfyUI-ultimate-openpose-render) repo or search in the Custom Nodes Manager
