@@ -120,9 +120,6 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     face_points_after_global_head_scale = [scale(p, head_scale, nose_body_final) for p in face_points_positioned]
                     face_points_scaled_current_fig = list(face_points_after_global_head_scale)
 
-                    # --- [모듈형 이동 로직] ---
-
-                    # 1. eye_distance_scale로 인한 수평 이동량 계산
                     reye_pos_after_head_scale = scale(initial_candidate[KP["REye"]] + effective_nose_translation, head_scale, nose_body_final)
                     leye_pos_after_head_scale = scale(initial_candidate[KP["LEye"]] + effective_nose_translation, head_scale, nose_body_final)
                     eye_center = (reye_pos_after_head_scale + leye_pos_after_head_scale) / 2
@@ -131,7 +128,6 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     right_dist_translation = reye_pos_after_dist_scale - reye_pos_after_head_scale
                     left_dist_translation = leye_pos_after_dist_scale - leye_pos_after_head_scale
 
-                    # 2. eye_height와 eyebrow_height로 인한 수직 이동량 각각 계산
                     eye_height_offset = np.array([0.0, 0.0])
                     eyebrow_height_offset = np.array([0.0, 0.0])
                     direction_vector = nose_body_final - neck_final
@@ -141,7 +137,6 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                         if abs(eye_height) > eps: eye_height_offset = unit_direction * eye_height
                         if abs(eyebrow_height) > eps: eyebrow_height_offset = unit_direction * eyebrow_height
                     
-                    # 3. 각 그룹에 적용될 최종 이동량 정의
                     group_translations = {
                         "Right_Eye": right_dist_translation + eye_height_offset,
                         "Left_Eye": left_dist_translation + eye_height_offset,
@@ -149,11 +144,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                         "Left_Eyebrow": left_dist_translation + eyebrow_height_offset,
                     }
 
-                    # 4. 몸통의 눈 키포인트 최종 위치 업데이트 (eye_height 오프셋만 적용)
                     scaled_candidate_np[KP["REye"]] = reye_pos_after_dist_scale + eye_height_offset
                     scaled_candidate_np[KP["LEye"]] = leye_pos_after_dist_scale + eye_height_offset
                     
-                    # 5. 얼굴 랜드마크 그룹에 최종 이동량 및 개별 스케일 적용
                     for group_name, indices in FACE_KP_GROUPS_INDICES.items():
                         group_scale_modifier = INDIVIDUAL_FACE_SCALES.get(group_name, 1.0)
                         valid_indices = [idx for idx in indices if idx < num_face_points]
@@ -194,8 +187,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                             face_points_scaled_current_fig[idx] = final_points[i]
                 
                 lwrist_final_calc, rwrist_final_calc = scaled_candidate_np[KP["LWrist"]], scaled_candidate_np[KP["RWrist"]]
-                lhand_scaled_current_fig = [(scale(np.array(lhand_raw[i:i+2]), hands_scale, lwrist_orig) + (lwrist_final_calc - lwrist_orig)) for i in range(0, len(lhand_raw), 3)] if lhand_raw else []
-                rhand_scaled_current_fig = [(scale(np.array(rhand_raw[i:i+2]), hands_scale, rwrist_orig) + (rwrist_final_calc - rwrist_orig)) for i in range(0, len(rhand_raw), 3)] if rhand_raw else []
+                
+                lhand_scaled_current_fig = [(scale(np.array(lhand_raw[i:i+2]), hands_scale, lwrist_orig) + (lwrist_final_calc - lwrist_orig)) if lhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(lhand_raw), 3)] if lhand_raw else []
+                rhand_scaled_current_fig = [(scale(np.array(rhand_raw[i:i+2]), hands_scale, rwrist_orig) + (rwrist_final_calc - rwrist_orig)) if rhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(rhand_raw), 3)] if rhand_raw else []
 
                 scales_to_check = [leg_scale, torso_scale, overall_scale, pelvis_scale, head_scale] 
                 is_scaling_active = any(abs(s - 1.0) > 0.001 for s in scales_to_check)
@@ -204,7 +198,10 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                 face_list_current_fig_np = np.array(face_points_scaled_current_fig) if face_points_scaled_current_fig else np.array([])
                 lhand_list_current_fig_np = np.array(lhand_scaled_current_fig) if lhand_scaled_current_fig else np.array([])
                 rhand_list_current_fig_np = np.array(rhand_scaled_current_fig) if rhand_scaled_current_fig else np.array([])
-                                
+                
+                # ==================================================================
+                # ===== 코드 수정 시작 (overall_scale 적용) =====
+                # ==================================================================
                 if use_ground_plane and is_scaling_active:
                     ground_y_coord = H
                     orig_feet_coords = [initial_candidate[i] for i in FEET_INDICES if i < len(initial_candidate)]
@@ -217,8 +214,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                         feet_pos_pivot = np.mean(feet_coords_for_overall_pivot, axis=0)
                         candidate_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in candidate_list_current_fig_np])
                         if face_list_current_fig_np.size > 0: face_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in face_list_current_fig_np])
-                        if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in lhand_list_current_fig_np])
-                        if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in rhand_list_current_fig_np])
+                        # (0,0) 포인트는 overall_scale에서 제외
+                        if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) if np.sum(np.abs(p)) > eps else p for p in lhand_list_current_fig_np])
+                        if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) if np.sum(np.abs(p)) > eps else p for p in rhand_list_current_fig_np])
 
                         final_feet_coords = [candidate_list_current_fig_np[i] for i in FEET_INDICES if i < len(candidate_list_current_fig_np)]
                         if final_feet_coords:
@@ -234,13 +232,22 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     center_pivot = [W * 0.5, H * 0.5]
                     candidate_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in candidate_list_current_fig_np])
                     if face_list_current_fig_np.size > 0: face_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in face_list_current_fig_np])
-                    if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in lhand_list_current_fig_np])
-                    if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in rhand_list_current_fig_np])
+                    # (0,0) 포인트는 overall_scale에서 제외
+                    if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in lhand_list_current_fig_np])
+                    if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in rhand_list_current_fig_np])
+                
+                # ==================================================================
+                # ===== 코드 수정 끝 ===============================================
+                # ==================================================================
 
                 body_kps_out_current_fig = [item for i, p in enumerate(candidate_list_current_fig_np) for item in [p[0], p[1], confidence_scores_body[i]]]
                 face_kps_out_current_fig = [item for p in face_list_current_fig_np for item in [p[0], p[1], 1.0]] if face_list_current_fig_np.size > 0 else []
-                lhand_kps_out_current_fig = [item for p in lhand_list_current_fig_np for item in [p[0], p[1], 1.0]] if lhand_list_current_fig_np.size > 0 else []
-                rhand_kps_out_current_fig = [item for p in rhand_list_current_fig_np for item in [p[0], p[1], 1.0]] if rhand_list_current_fig_np.size > 0 else []
+                
+                original_lhand_confidences = [lhand_raw[i+2] for i in range(0, len(lhand_raw), 3)] if lhand_raw else []
+                original_rhand_confidences = [rhand_raw[i+2] for i in range(0, len(rhand_raw), 3)] if rhand_raw else []
+                
+                lhand_kps_out_current_fig = [item for i, p in enumerate(lhand_list_current_fig_np) for item in [p[0], p[1], original_lhand_confidences[i]]] if lhand_list_current_fig_np.size > 0 else []
+                rhand_kps_out_current_fig = [item for i, p in enumerate(rhand_list_current_fig_np) for item in [p[0], p[1], original_rhand_confidences[i]]] if rhand_list_current_fig_np.size > 0 else []
                 
                 current_image_people_data_for_output.append({
                     "pose_keypoints_2d": body_kps_out_current_fig, "face_keypoints_2d": face_kps_out_current_fig,
@@ -279,8 +286,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     for point_list in hand_kps_list: 
                         if not isinstance(point_list, (list, np.ndarray)) or len(point_list) != 2: continue 
                         norm_point = np.array(point_list).astype(float)
-                        norm_point[0] /= float(W)
-                        norm_point[1] /= float(H)
+                        if norm_point[0] > eps or norm_point[1] > eps:
+                            norm_point[0] /= float(W)
+                            norm_point[1] /= float(H)
                         current_normalized_hand.append(norm_point.tolist())
                     if current_normalized_hand : hands_final_norm_for_drawing.append(current_normalized_hand)
             
@@ -351,6 +359,7 @@ def draw_handpose(canvas, all_hand_peaks, hand_marker_size):
             if e[0] >= len(peaks_np) or e[1] >= len(peaks_np): continue
             x1_coord, y1_coord = peaks_np[e[0]] 
             x2_coord, y2_coord = peaks_np[e[1]]
+            if x1_coord < eps and y1_coord < eps or x2_coord < eps and y2_coord < eps: continue
             x1, y1 = int(x1_coord * W), int(y1_coord * H)
             x2, y2 = int(x2_coord * W), int(y2_coord * H)
             if x1 > eps and y1 > eps and x2 > eps and y2 > eps:
