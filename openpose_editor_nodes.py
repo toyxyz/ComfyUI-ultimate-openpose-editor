@@ -41,6 +41,7 @@ class OpenposeEditorNode:
                 "overall_scale": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01 }),
                 "POSE_JSON": ("STRING", {"multiline": True}),
                 "POSE_KEYPOINT": ("POSE_KEYPOINT",{"default": None}),
+                "Target_pose_keypoint": ("POSE_KEYPOINT", {"default": None}),
             },
         }
 
@@ -52,20 +53,22 @@ class OpenposeEditorNode:
 
     def load_pose(self, show_body, show_face, show_hands, resolution_x, use_ground_plane,
                   pose_marker_size, face_marker_size, hand_marker_size,
-                  pelvis_scale, torso_scale, neck_scale, head_scale, eye_distance_scale, eye_height, eyebrow_height, # eyebrow_height 추가됨
+                  pelvis_scale, torso_scale, neck_scale, head_scale, eye_distance_scale, eye_height, eyebrow_height,
                   left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                   mouth_scale, nose_scale_face, face_shape_scale,
                   shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
-                  POSE_JSON: str, POSE_KEYPOINT=None) -> tuple[OpenposeJSON]:
+                  POSE_JSON: str, POSE_KEYPOINT=None, Target_pose_keypoint=None) -> tuple[OpenposeJSON]:
         
-        def process_pose(pose_input_str_list):
+        # 내부 함수인 process_pose에 Target_pose_keypoint를 전달하도록 수정
+        def process_pose(pose_input_str_list, target_pose_obj=None):
             pose_imgs, final_keypoints_batch = draw_pose_json(
                 pose_input_str_list, resolution_x, use_ground_plane, show_body, show_face, show_hands,
                 pose_marker_size, face_marker_size, hand_marker_size,
-                pelvis_scale, torso_scale, neck_scale, head_scale, eye_distance_scale, eye_height, eyebrow_height, # eyebrow_height 전달됨
+                pelvis_scale, torso_scale, neck_scale, head_scale, eye_distance_scale, eye_height, eyebrow_height,
                 left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                 mouth_scale, nose_scale_face, face_shape_scale,
-                shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale
+                shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
+                target_pose_keypoint_obj=target_pose_obj # util.py 함수로 Target_pose_keypoint 전달
             )
             
             if not pose_imgs: return None, None, None
@@ -75,17 +78,19 @@ class OpenposeEditorNode:
             return torch.from_numpy(pose_imgs_np), final_keypoints_batch, final_json_str
 
         input_json_str = ""
-        if POSE_JSON: 
+        # 팔 길이 비교를 위해 POSE_KEYPOINT가 우선순위를 갖도록 순서 조정
+        if POSE_KEYPOINT is not None:
+            input_json_str = f"[{json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')}]" if not isinstance(POSE_KEYPOINT, list) else json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')
+        elif POSE_JSON: 
             temp_json = POSE_JSON.replace("'",'"').replace('None','[]')
             try:
                 parsed_json = json.loads(temp_json)
                 input_json_str = f"[{temp_json}]" if not isinstance(parsed_json, list) else temp_json
             except json.JSONDecodeError: input_json_str = f"[{temp_json}]"
-        elif POSE_KEYPOINT is not None:
-            input_json_str = f"[{json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')}]" if not isinstance(POSE_KEYPOINT, list) else json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')
         
         if input_json_str:
-            image_tensor, keypoint_obj_batch, json_str_batch = process_pose(input_json_str)
+            # process_pose 호출 시 Target_pose_keypoint 객체를 인자로 전달
+            image_tensor, keypoint_obj_batch, json_str_batch = process_pose(input_json_str, Target_pose_keypoint)
             if image_tensor is not None:
                 return { "ui": {"POSE_JSON": [json_str_batch]}, "result": (image_tensor, keypoint_obj_batch, json_str_batch) }
 
