@@ -7,9 +7,6 @@ from comfy.utils import ProgressBar
 
 eps = 0.01
 
-#Face_landmark : Left Eye(42, 43, 44, 45, 46, 47, 69), Right eye(36, 37, 38, 39, 40, 41, 68), lefteyebrow(22,23,24,25,26), righteyebrow(17,18,19,20,21),  mouth(48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67), nose(27, 28, 29, 30, 31, 32, 33, 34, 35), face_shape(0~16)
-
-
 def scale(point, scale_factor, pivot):
     if not isinstance(point, np.ndarray): point = np.array(point)
     if not isinstance(pivot, np.ndarray): pivot = np.array(pivot)
@@ -20,7 +17,209 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                    pelvis_scale, torso_scale, neck_scale, head_scale, eye_distance_scale, eye_height, eyebrow_height,
                    left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                    mouth_scale, nose_scale_face, face_shape_scale,
-                   shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale):
+                   shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
+                   target_pose_keypoint_obj=None):
+
+    # 최종적으로 적용될 스케일 값을 초기화
+    final_hands_scale = hands_scale
+    final_torso_scale = torso_scale
+    final_head_scale = head_scale
+    final_neck_scale = neck_scale
+    final_pelvis_scale = pelvis_scale
+    final_shoulder_scale = shoulder_scale
+    final_arm_scale = arm_scale
+    final_leg_scale = leg_scale
+
+    if target_pose_keypoint_obj and pose_json_str:
+        try:
+            source_pose_obj = json.loads(pose_json_str)
+
+            # --- 공용 헬퍼 함수 정의 ---
+            def get_point(kps_list, index):
+                if index * 3 + 2 >= len(kps_list) or kps_list[index * 3 + 2] == 0:
+                    return None
+                return np.array([kps_list[index * 3], kps_list[index * 3 + 1]])
+
+            def calculate_limb_length(kps_list, p1_idx, p2_idx):
+                p1 = get_point(kps_list, p1_idx)
+                p2 = get_point(kps_list, p2_idx)
+                if p1 is not None and p2 is not None:
+                    return np.linalg.norm(p1 - p2)
+                return 0.0
+            
+            # --- 팔 길이 계산 ---
+            def get_max_arm_length(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    right_arm_len = calculate_limb_length(keypoints, 2, 3) + calculate_limb_length(keypoints, 3, 4)
+                    left_arm_len = calculate_limb_length(keypoints, 5, 6) + calculate_limb_length(keypoints, 6, 7)
+                    return max(left_arm_len, right_arm_len)
+                except (IndexError, TypeError): return 0.0
+
+            target_arm_len = get_max_arm_length(target_pose_keypoint_obj)
+            source_arm_len = get_max_arm_length(source_pose_obj)
+
+            if source_arm_len > 0 and target_arm_len > 0:
+                final_arm_scale = arm_scale * (target_arm_len / source_arm_len)
+
+            # --- 다리 길이 계산 ---
+            def get_max_leg_length(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    right_leg_len = calculate_limb_length(keypoints, 8, 9) + calculate_limb_length(keypoints, 9, 10)
+                    left_leg_len = calculate_limb_length(keypoints, 11, 12) + calculate_limb_length(keypoints, 12, 13)
+                    return max(left_leg_len, right_leg_len)
+                except (IndexError, TypeError): return 0.0
+            
+            target_leg_len = get_max_leg_length(target_pose_keypoint_obj)
+            source_leg_len = get_max_leg_length(source_pose_obj)
+
+            if source_leg_len > 0 and target_leg_len > 0:
+                final_leg_scale = leg_scale * (target_leg_len / source_leg_len)
+            
+            # --- 어깨 너비 계산 ---
+            def get_shoulder_width(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    width = calculate_limb_length(keypoints, 2, 5)
+                    return width
+                except (IndexError, TypeError): return 0.0
+
+            target_shoulder_width = get_shoulder_width(target_pose_keypoint_obj)
+            source_shoulder_width = get_shoulder_width(source_pose_obj)
+            
+            if source_shoulder_width > 0 and target_shoulder_width > 0:
+                final_shoulder_scale = shoulder_scale * (target_shoulder_width / source_shoulder_width)
+
+            # --- 골반 너비 계산 ---
+            def get_pelvis_width(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    width = calculate_limb_length(keypoints, 8, 11)
+                    return width
+                except (IndexError, TypeError): return 0.0
+            
+            target_pelvis_width = get_pelvis_width(target_pose_keypoint_obj)
+            source_pelvis_width = get_pelvis_width(source_pose_obj)
+
+            if source_pelvis_width > 0 and target_pelvis_width > 0:
+                final_pelvis_scale = pelvis_scale * (target_pelvis_width / source_pelvis_width)
+            
+            # --- 목 길이 계산 ---
+            def get_neck_length(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    length = calculate_limb_length(keypoints, 1, 0)
+                    return length
+                except (IndexError, TypeError): return 0.0
+
+            target_neck_length = get_neck_length(target_pose_keypoint_obj)
+            source_neck_length = get_neck_length(source_pose_obj)
+
+            if source_neck_length > 0 and target_neck_length > 0:
+                final_neck_scale = neck_scale * (target_neck_length / source_neck_length)
+                
+            # --- 머리 크기 계산 ---
+            def get_head_size(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    
+                    head_indices = [0, 14, 15, 16, 17]
+                    valid_points = [p for i in head_indices if (p := get_point(keypoints, i)) is not None]
+
+                    if len(valid_points) < 3: return 0.0
+
+                    points_for_hull = np.array(valid_points, dtype=np.float32).reshape((-1, 1, 2))
+                    hull = cv2.convexHull(points_for_hull)
+                    area = cv2.contourArea(hull)
+                    return area
+                except (IndexError, TypeError): return 0.0
+
+            target_head_size = get_head_size(target_pose_keypoint_obj)
+            source_head_size = get_head_size(source_pose_obj)
+
+            if source_head_size > 0 and target_head_size > 0:
+                size_ratio = math.sqrt(target_head_size / source_head_size)
+                final_head_scale = head_scale * size_ratio
+
+            # --- 몸통 길이 계산 ---
+            def get_torso_length(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    keypoints = pose_obj[0]['people'][0].get('pose_keypoints_2d', [])
+                    if not keypoints: return 0.0
+                    
+                    right_hip = get_point(keypoints, 8)
+                    left_hip = get_point(keypoints, 11)
+                    neck = get_point(keypoints, 1)
+
+                    if right_hip is None or left_hip is None or neck is None: return 0.0
+                    
+                    hip_midpoint = (right_hip + left_hip) / 2.0
+                    length = np.linalg.norm(neck - hip_midpoint)
+                    return length
+                except (IndexError, TypeError): return 0.0
+            
+            target_torso_length = get_torso_length(target_pose_keypoint_obj)
+            source_torso_length = get_torso_length(source_pose_obj)
+            
+            if source_torso_length > 0 and target_torso_length > 0:
+                final_torso_scale = torso_scale * (target_torso_length / source_torso_length)
+                
+            # --- 손 크기 계산 (새로 추가된 부분) ---
+            def get_hand_area(hand_kps_list):
+                if not hand_kps_list: return 0.0
+                valid_points = []
+                for i in range(0, len(hand_kps_list), 3):
+                    if hand_kps_list[i+2] > 0:
+                        valid_points.append([hand_kps_list[i], hand_kps_list[i+1]])
+                if len(valid_points) < 3: return 0.0
+                points_for_hull = np.array(valid_points, dtype=np.float32).reshape((-1, 1, 2))
+                hull = cv2.convexHull(points_for_hull)
+                return cv2.contourArea(hull)
+
+            def get_max_hand_size(pose_obj):
+                try:
+                    if not isinstance(pose_obj, list) or not pose_obj or 'people' not in pose_obj[0] or not pose_obj[0]['people']: return 0.0
+                    person = pose_obj[0]['people'][0]
+                    left_hand_kps = person.get('hand_left_keypoints_2d', [])
+                    right_hand_kps = person.get('hand_right_keypoints_2d', [])
+                    left_area = get_hand_area(left_hand_kps)
+                    right_area = get_hand_area(right_hand_kps)
+                    return max(left_area, right_area)
+                except(IndexError, TypeError): return 0.0
+
+            target_hand_size = get_max_hand_size(target_pose_keypoint_obj)
+            source_hand_size = get_max_hand_size(source_pose_obj)
+
+            if source_hand_size > 0 and target_hand_size > 0:
+                size_ratio = math.sqrt(target_hand_size / source_hand_size)
+                final_hands_scale = hands_scale * size_ratio
+
+
+        except (json.JSONDecodeError, IndexError, TypeError):
+            # 에러 발생 시 원래 값 유지
+            final_hands_scale = hands_scale
+            final_torso_scale = torso_scale
+            final_head_scale = head_scale
+            final_neck_scale = neck_scale
+            final_pelvis_scale = pelvis_scale
+            final_shoulder_scale = shoulder_scale
+            final_arm_scale = arm_scale
+            final_leg_scale = leg_scale
+
     pose_imgs = []
     all_frames_keypoints_output = []
 
@@ -85,31 +284,32 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                 neck_orig, r_shoulder_orig, l_shoulder_orig, nose_orig = [initial_candidate[KP[k]] for k in ["Neck", "RShoulder", "LShoulder", "Nose"]]
                 lwrist_orig, rwrist_orig = initial_candidate[KP["LWrist"]], initial_candidate[KP["RWrist"]]
 
-                r_hip_final = scale(r_hip_orig, pelvis_scale, hip_center_orig)
-                l_hip_final = scale(l_hip_orig, pelvis_scale, hip_center_orig)
+                r_hip_final = scale(r_hip_orig, final_pelvis_scale, hip_center_orig)
+                l_hip_final = scale(l_hip_orig, final_pelvis_scale, hip_center_orig)
                 scaled_candidate_np[KP["RHip"]], scaled_candidate_np[KP["LHip"]] = r_hip_final, l_hip_final
                 
                 hip_center_final = (r_hip_final + l_hip_final) / 2
-                neck_final = scale(neck_orig, torso_scale, hip_center_final)
+                neck_final = scale(neck_orig, final_torso_scale, hip_center_final)
                 scaled_candidate_np[KP["Neck"]] = neck_final
 
-                scaled_candidate_np[KP["RShoulder"]] = neck_final + (r_shoulder_orig - neck_orig) * shoulder_scale
-                scaled_candidate_np[KP["LShoulder"]] = neck_final + (l_shoulder_orig - neck_orig) * shoulder_scale
+                scaled_candidate_np[KP["RShoulder"]] = neck_final + (r_shoulder_orig - neck_orig) * final_shoulder_scale
+                scaled_candidate_np[KP["LShoulder"]] = neck_final + (l_shoulder_orig - neck_orig) * final_shoulder_scale
                 
                 r_shoulder_final, l_shoulder_final = scaled_candidate_np[KP["RShoulder"]], scaled_candidate_np[KP["LShoulder"]]
-                for i in [KP["RElbow"], KP["RWrist"]]: scaled_candidate_np[i] = r_shoulder_final + (initial_candidate[i] - r_shoulder_orig) * arm_scale
-                for i in [KP["LElbow"], KP["LWrist"]]: scaled_candidate_np[i] = l_shoulder_final + (initial_candidate[i] - l_shoulder_orig) * arm_scale
-                    
-                for i in R_LEG_INDICES: scaled_candidate_np[i] = r_hip_final + (initial_candidate[i] - r_hip_orig) * leg_scale
-                for i in L_LEG_INDICES: scaled_candidate_np[i] = l_hip_final + (initial_candidate[i] - l_hip_orig) * leg_scale
                 
-                nose_body_final = neck_final + (nose_orig - neck_orig) * neck_scale
+                for i in [KP["RElbow"], KP["RWrist"]]: scaled_candidate_np[i] = r_shoulder_final + (initial_candidate[i] - r_shoulder_orig) * final_arm_scale
+                for i in [KP["LElbow"], KP["LWrist"]]: scaled_candidate_np[i] = l_shoulder_final + (initial_candidate[i] - l_shoulder_orig) * final_arm_scale
+                
+                for i in R_LEG_INDICES: scaled_candidate_np[i] = r_hip_final + (initial_candidate[i] - r_hip_orig) * final_leg_scale
+                for i in L_LEG_INDICES: scaled_candidate_np[i] = l_hip_final + (initial_candidate[i] - l_hip_orig) * final_leg_scale
+                
+                nose_body_final = neck_final + (nose_orig - neck_orig) * final_neck_scale
                 scaled_candidate_np[KP["Nose"]] = nose_body_final
                 
                 effective_nose_translation = nose_body_final - nose_orig
                 for i in BODY_HEAD_PARTS:
                     part_moved_with_nose = initial_candidate[i] + effective_nose_translation
-                    scaled_candidate_np[i] = scale(part_moved_with_nose, head_scale, nose_body_final)
+                    scaled_candidate_np[i] = scale(part_moved_with_nose, final_head_scale, nose_body_final)
 
                 face_points_scaled_current_fig = []
                 if face_raw:
@@ -117,11 +317,11 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     num_face_points = len(face_points_orig)
                     
                     face_points_positioned = [p + effective_nose_translation for p in face_points_orig]
-                    face_points_after_global_head_scale = [scale(p, head_scale, nose_body_final) for p in face_points_positioned]
+                    face_points_after_global_head_scale = [scale(p, final_head_scale, nose_body_final) for p in face_points_positioned]
                     face_points_scaled_current_fig = list(face_points_after_global_head_scale)
 
-                    reye_pos_after_head_scale = scale(initial_candidate[KP["REye"]] + effective_nose_translation, head_scale, nose_body_final)
-                    leye_pos_after_head_scale = scale(initial_candidate[KP["LEye"]] + effective_nose_translation, head_scale, nose_body_final)
+                    reye_pos_after_head_scale = scale(initial_candidate[KP["REye"]] + effective_nose_translation, final_head_scale, nose_body_final)
+                    leye_pos_after_head_scale = scale(initial_candidate[KP["LEye"]] + effective_nose_translation, final_head_scale, nose_body_final)
                     eye_center = (reye_pos_after_head_scale + leye_pos_after_head_scale) / 2
                     reye_pos_after_dist_scale = scale(reye_pos_after_head_scale, eye_distance_scale, eye_center)
                     leye_pos_after_dist_scale = scale(leye_pos_after_head_scale, eye_distance_scale, eye_center)
@@ -188,8 +388,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                 
                 lwrist_final_calc, rwrist_final_calc = scaled_candidate_np[KP["LWrist"]], scaled_candidate_np[KP["RWrist"]]
                 
-                lhand_scaled_current_fig = [(scale(np.array(lhand_raw[i:i+2]), hands_scale, lwrist_orig) + (lwrist_final_calc - lwrist_orig)) if lhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(lhand_raw), 3)] if lhand_raw else []
-                rhand_scaled_current_fig = [(scale(np.array(rhand_raw[i:i+2]), hands_scale, rwrist_orig) + (rwrist_final_calc - rwrist_orig)) if rhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(rhand_raw), 3)] if rhand_raw else []
+                # hands_scale 대신 계산된 final_hands_scale을 사용하도록 수정
+                lhand_scaled_current_fig = [(scale(np.array(lhand_raw[i:i+2]), final_hands_scale, lwrist_orig) + (lwrist_final_calc - lwrist_orig)) if lhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(lhand_raw), 3)] if lhand_raw else []
+                rhand_scaled_current_fig = [(scale(np.array(rhand_raw[i:i+2]), final_hands_scale, rwrist_orig) + (rwrist_final_calc - rwrist_orig)) if rhand_raw[i+2] > 0 else np.array([0.0, 0.0]) for i in range(0, len(rhand_raw), 3)] if rhand_raw else []
 
                 scales_to_check = [leg_scale, torso_scale, overall_scale, pelvis_scale, head_scale] 
                 is_scaling_active = any(abs(s - 1.0) > 0.001 for s in scales_to_check)
@@ -199,9 +400,6 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                 lhand_list_current_fig_np = np.array(lhand_scaled_current_fig) if lhand_scaled_current_fig else np.array([])
                 rhand_list_current_fig_np = np.array(rhand_scaled_current_fig) if rhand_scaled_current_fig else np.array([])
                 
-                # ==================================================================
-                # ===== 코드 수정 시작 (overall_scale 적용) =====
-                # ==================================================================
                 if use_ground_plane and is_scaling_active:
                     ground_y_coord = H
                     orig_feet_coords = [initial_candidate[i] for i in FEET_INDICES if i < len(initial_candidate)]
@@ -214,7 +412,6 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                         feet_pos_pivot = np.mean(feet_coords_for_overall_pivot, axis=0)
                         candidate_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in candidate_list_current_fig_np])
                         if face_list_current_fig_np.size > 0: face_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) for p in face_list_current_fig_np])
-                        # (0,0) 포인트는 overall_scale에서 제외
                         if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) if np.sum(np.abs(p)) > eps else p for p in lhand_list_current_fig_np])
                         if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, feet_pos_pivot) if np.sum(np.abs(p)) > eps else p for p in rhand_list_current_fig_np])
 
@@ -232,14 +429,9 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     center_pivot = [W * 0.5, H * 0.5]
                     candidate_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in candidate_list_current_fig_np])
                     if face_list_current_fig_np.size > 0: face_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in face_list_current_fig_np])
-                    # (0,0) 포인트는 overall_scale에서 제외
                     if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in lhand_list_current_fig_np])
                     if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in rhand_list_current_fig_np])
                 
-                # ==================================================================
-                # ===== 코드 수정 끝 ===============================================
-                # ==================================================================
-
                 body_kps_out_current_fig = [item for i, p in enumerate(candidate_list_current_fig_np) for item in [p[0], p[1], confidence_scores_body[i]]]
                 face_kps_out_current_fig = [item for p in face_list_current_fig_np for item in [p[0], p[1], 1.0]] if face_list_current_fig_np.size > 0 else []
                 
