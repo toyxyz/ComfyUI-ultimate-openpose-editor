@@ -1,4 +1,11 @@
-#update 2025/05/28 - Add more scale options
+# update
+
+-2025/05/28 - Add a target keypoint. The scale entered by the user is multiplied by the scale of the target keypoint.
+
+https://github.com/user-attachments/assets/539cdcd7-520f-44d9-94ff-041b20e6e1cd
+
+-2025/05/28 - Add more scale options
+
 ![image](https://github.com/user-attachments/assets/22d7358b-2d83-498c-9536-c8c352033c99)
 
 ----------
