@@ -80,7 +80,11 @@ class OpenposeEditorNode:
         input_json_str = ""
         # 팔 길이 비교를 위해 POSE_KEYPOINT가 우선순위를 갖도록 순서 조정
         if POSE_KEYPOINT is not None:
-            input_json_str = f"[{json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')}]" if not isinstance(POSE_KEYPOINT, list) else json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')
+            normalized_json_data = json.dumps(POSE_KEYPOINT, indent=4).replace("'",'"').replace('None','[]')
+            if not isinstance(POSE_KEYPOINT, list):
+                input_json_str = f'[{normalized_json_data}]'
+            else:
+                input_json_str = normalized_json_data
         elif POSE_JSON: 
             temp_json = POSE_JSON.replace("'",'"').replace('None','[]')
             try:
