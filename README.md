@@ -1,5 +1,7 @@
 # update
 
+-2025/06/02 -Added translate X, Y and rotation.
+
 -2025/05/28 - Add a target keypoint. The scale entered by the user is multiplied by the scale of the target keypoint.
 
 https://github.com/user-attachments/assets/539cdcd7-520f-44d9-94ff-041b20e6e1cd
