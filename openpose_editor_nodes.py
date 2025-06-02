@@ -39,6 +39,9 @@ class OpenposeEditorNode:
                 "leg_scale": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01 }),
                 "hands_scale": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01 }),
                 "overall_scale": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01 }),
+                "rotate_angle": ("FLOAT", {"default": 0.0, "min": -360.0, "max": 360.0, "step": 0.1}),
+                "translate_x": ("FLOAT", {"default": 0.0, "min": -10000.0, "max": 10000.0, "step": 0.1}),
+                "translate_y": ("FLOAT", {"default": 0.0, "min": -10000.0, "max": 10000.0, "step": 0.1}),
                 "POSE_JSON": ("STRING", {"multiline": True}),
                 "POSE_KEYPOINT": ("POSE_KEYPOINT",{"default": None}),
                 "Target_pose_keypoint": ("POSE_KEYPOINT", {"default": None}),
@@ -57,10 +60,11 @@ class OpenposeEditorNode:
                   left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                   mouth_scale, nose_scale_face, face_shape_scale,
                   shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
+                  rotate_angle, translate_x, translate_y,
                   POSE_JSON: str, POSE_KEYPOINT=None, Target_pose_keypoint=None) -> tuple[OpenposeJSON]:
         
         # 내부 함수인 process_pose에 Target_pose_keypoint를 전달하도록 수정
-        def process_pose(pose_input_str_list, target_pose_obj=None):
+        def process_pose(pose_input_str_list, target_pose_obj=None, rot_angle=0, tr_x=0.0, tr_y=0.0):
             pose_imgs, final_keypoints_batch = draw_pose_json(
                 pose_input_str_list, resolution_x, use_ground_plane, show_body, show_face, show_hands,
                 pose_marker_size, face_marker_size, hand_marker_size,
@@ -68,6 +72,7 @@ class OpenposeEditorNode:
                 left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                 mouth_scale, nose_scale_face, face_shape_scale,
                 shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
+                rot_angle, tr_x, tr_y,
                 target_pose_keypoint_obj=target_pose_obj # util.py 함수로 Target_pose_keypoint 전달
             )
             
@@ -94,7 +99,7 @@ class OpenposeEditorNode:
         
         if input_json_str:
             # process_pose 호출 시 Target_pose_keypoint 객체를 인자로 전달
-            image_tensor, keypoint_obj_batch, json_str_batch = process_pose(input_json_str, Target_pose_keypoint)
+            image_tensor, keypoint_obj_batch, json_str_batch = process_pose(input_json_str, Target_pose_keypoint, rotate_angle, translate_x, translate_y)
             if image_tensor is not None:
                 return { "ui": {"POSE_JSON": [json_str_batch]}, "result": (image_tensor, keypoint_obj_batch, json_str_batch) }
 
