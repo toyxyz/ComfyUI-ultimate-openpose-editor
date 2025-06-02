@@ -18,6 +18,7 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                    left_eye_scale, right_eye_scale, left_eyebrow_scale, right_eyebrow_scale,
                    mouth_scale, nose_scale_face, face_shape_scale,
                    shoulder_scale, arm_scale, leg_scale, hands_scale, overall_scale,
+                   rotate_angle, translate_x, translate_y,
                    target_pose_keypoint_obj=None):
 
     # 최종적으로 적용될 스케일 값을 초기화
@@ -431,6 +432,83 @@ def draw_pose_json(pose_json_str, resolution_x, use_ground_plane, show_body, sho
                     if face_list_current_fig_np.size > 0: face_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) for p in face_list_current_fig_np])
                     if lhand_list_current_fig_np.size > 0: lhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in lhand_list_current_fig_np])
                     if rhand_list_current_fig_np.size > 0: rhand_list_current_fig_np = np.array([scale(p, overall_scale, center_pivot) if np.sum(np.abs(p)) > eps else p for p in rhand_list_current_fig_np])
+                
+                # Rotation Logic (after all scaling, before translation)
+                if abs(rotate_angle) > eps: # Only rotate if angle is significant
+                    all_points_for_rotation_center = []
+                    if candidate_list_current_fig_np.size > 0:
+                        # 유효한 body 포인트만 중심 계산에 사용 (confidence 기반으로 필터링하는 것이 더 정확할 수 있으나, 여기서는 모든 점 사용)
+                        all_points_for_rotation_center.extend(candidate_list_current_fig_np.tolist())
+                    if face_list_current_fig_np.size > 0:
+                        all_points_for_rotation_center.extend(face_list_current_fig_np.tolist())
+                    
+                    # 손 포인트 중 [0,0]이 아닌 유효한 포인트만 중심 계산에 사용
+                    if lhand_list_current_fig_np.size > 0:
+                        valid_lhand_points = [p.tolist() for p in lhand_list_current_fig_np if np.sum(np.abs(p)) > eps]
+                        if valid_lhand_points:
+                            all_points_for_rotation_center.extend(valid_lhand_points)
+                    if rhand_list_current_fig_np.size > 0:
+                        valid_rhand_points = [p.tolist() for p in rhand_list_current_fig_np if np.sum(np.abs(p)) > eps]
+                        if valid_rhand_points:
+                            all_points_for_rotation_center.extend(valid_rhand_points)
+
+                    if all_points_for_rotation_center:
+                        points_for_center_np = np.array(all_points_for_rotation_center)
+                        center_x = np.mean(points_for_center_np[:, 0])
+                        center_y = np.mean(points_for_center_np[:, 1])
+
+                        angle_rad = math.radians(rotate_angle)
+                        cos_a = math.cos(angle_rad)
+                        sin_a = math.sin(angle_rad)
+
+                        def apply_rotation_to_points(points_np, cx, cy, c_angle, s_angle):
+                            if points_np.size == 0:
+                                return points_np
+                            
+                            # 회전 적용할 포인트만 선택 (예: [0,0] 제외는 여기서 처리 안함, 모든 점 동일하게 회전)
+                            # 원본 포인트를 복사하여 사용
+                            rotated_points = points_np.copy()
+                            
+                            # 중심점으로 이동
+                            translated_x = rotated_points[:, 0] - cx
+                            translated_y = rotated_points[:, 1] - cy
+                            
+                            # 회전
+                            rotated_x = translated_x * c_angle - translated_y * s_angle
+                            rotated_y = translated_x * s_angle + translated_y * c_angle
+                            
+                            # 다시 원래 위치로 이동 (중심점 기준)
+                            rotated_points[:, 0] = rotated_x + cx
+                            rotated_points[:, 1] = rotated_y + cy
+                            return rotated_points
+
+                        if candidate_list_current_fig_np.size > 0:
+                            candidate_list_current_fig_np = apply_rotation_to_points(candidate_list_current_fig_np, center_x, center_y, cos_a, sin_a)
+                        if face_list_current_fig_np.size > 0:
+                            face_list_current_fig_np = apply_rotation_to_points(face_list_current_fig_np, center_x, center_y, cos_a, sin_a)
+                        if lhand_list_current_fig_np.size > 0:
+                            # [0,0] 점들도 회전 중심에 대해 상대적으로 회전됨
+                            lhand_list_current_fig_np = apply_rotation_to_points(lhand_list_current_fig_np, center_x, center_y, cos_a, sin_a)
+                        if rhand_list_current_fig_np.size > 0:
+                            # [0,0] 점들도 회전 중심에 대해 상대적으로 회전됨
+                            rhand_list_current_fig_np = apply_rotation_to_points(rhand_list_current_fig_np, center_x, center_y, cos_a, sin_a)
+                
+                
+                if abs(translate_x) > eps or abs(translate_y) > eps: # 실제로 이동이 필요한 경우에만 연산
+                    translation_vector = np.array([translate_x, translate_y], dtype=np.float32)
+
+                    if candidate_list_current_fig_np.size > 0:
+                        candidate_list_current_fig_np = candidate_list_current_fig_np + translation_vector
+                    
+                    if face_list_current_fig_np.size > 0:
+                        face_list_current_fig_np = face_list_current_fig_np + translation_vector
+                    
+                    if lhand_list_current_fig_np.size > 0:
+                        lhand_list_current_fig_np = lhand_list_current_fig_np + translation_vector
+                    
+                    if rhand_list_current_fig_np.size > 0:
+                        rhand_list_current_fig_np = rhand_list_current_fig_np + translation_vector
+                
                 
                 body_kps_out_current_fig = [item for i, p in enumerate(candidate_list_current_fig_np) for item in [p[0], p[1], confidence_scores_body[i]]]
                 face_kps_out_current_fig = [item for p in face_list_current_fig_np for item in [p[0], p[1], 1.0]] if face_list_current_fig_np.size > 0 else []
