@@ -1,5 +1,7 @@
 # update
 
+-2025/06/03 -Added Pose Keypoints to Mask to mask node
+
 -2025/06/02 -Added translate X, Y and rotation.
 
 -2025/05/28 - Add a target keypoint. The scale entered by the user is multiplied by the scale of the target keypoint.
